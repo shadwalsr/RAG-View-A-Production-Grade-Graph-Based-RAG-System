@@ -410,6 +410,15 @@ elif active_tab == "Graph Explorer":
     <div style="display:flex; gap:12px; flex-wrap:wrap;">{legend_items}</div>
 </div>""", unsafe_allow_html=True)
 
+        # Dynamic Visual Filtering Controls
+        available_types = sorted(list(TYPE_COLORS.keys()))
+        selected_types = st.multiselect(
+            "Select entity types to display on interactive map:",
+            options=available_types,
+            default=available_types,
+            key="graph_explorer_entity_filter"
+        )
+
         # Build PyVis graph.
         net = Network(height="480px", width="100%", bgcolor="#111318", font_color="#FFFFFF", notebook=False, cdn_resources="remote")
 
@@ -423,6 +432,8 @@ elif active_tab == "Graph Explorer":
         for n in full_graph["nodes"]:
             name = n["name"]
             ntype = n.get("type", "CONCEPT")
+            if ntype not in selected_types:
+                continue
             color = TYPE_COLORS.get(ntype, DEFAULT_COLOR)
             degree = node_degree.get(name, 0)
             size = max(12, min(36, 10 + degree * 3))
