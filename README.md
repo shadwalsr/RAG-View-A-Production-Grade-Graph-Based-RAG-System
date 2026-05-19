@@ -19,12 +19,15 @@
 
 ## ✨ Key Capabilities
 
-- **Hybrid RRF Retriever** – merges dense, sparse and graph‑based signals into a single high‑precision context pool.
-- **Asynchronous Document Ingestion** – heavy extraction (chunking, Gemini entity extraction, graph weight updates) runs in background tasks backed by Redis.
-- **Enterprise‑grade Security & Reliability** – `slowapi` rate limiting, API‑key header auth, Redis query caching (1‑hour TTL).
-- **Multi‑Dimensional Confidence Scoring** – retrieval, grounding and graph‑coverage metrics for every answer.
-- **100 % Citation Grounding** – every claim is verified against Neo4j node properties; unsupported statements are flagged.
-- **Live Streamlit Dashboard** – hyper‑minimal UI for GraphRAG chat, 1‑hop visual neighbourhood inspection and benchmark comparison.
+- **Hybrid RRF Retriever** – Merges dense, sparse, and graph‑based signals into a single high‑precision context pool.
+- **Asynchronous Document Ingestion** – Ingestion operations (chunking, Gemini entity extraction, and graph weight updates) run on background workers with resilient `RedisJobsStore` persistence.
+- **Granular Cache Invalidation** – Maps cached query keys to their entity dependencies, selectively purging only the affected cache keys when new files are ingested to keep unrelated queries warm.
+- **LLM-Powered Entity Resolution** – Employs a strict Gemini verification pass (`temperature=0.0`) on cosine similarity candidates to filter false positives before merging nodes.
+- **Real-Time Response Streaming** – Streams answer tokens in real-time using FastAPI Server-Sent Events (SSE) and updates the Streamlit chat bubbles dynamically.
+- **Distributed Redis Rate Limiting** – Coordinates token-bucket limits globally via a shared Redis backend store to ensure consistency across scaled API replicas.
+- **Multi‑Dimensional Confidence Scoring** – Displays retrieval, grounding, and graph‑coverage metrics for every answer using glowing interactive circular gauges.
+- **100 % Citation Grounding** – Every claim is verified against Neo4j node properties; unsupported statements are flagged and linked via interactive hover HTML pills.
+- **Live Streamlit Dashboard** – A premium, minimalist UI for GraphRAG chat, 1‑hop visual neighbourhood inspection, and benchmark comparisons.
 
 ---
 
@@ -67,6 +70,32 @@ graph TD
     class H,I sec;
     class J engine;
 ```
+
+---
+
+## 💎 Production‑Grade Advanced Systems Engineering
+
+### ⚡ 1. Granular Cache Invalidation Engine
+Rather than executing a full cache wipe upon document ingestion—which destroys search performance for unrelated queries—RAG-View uses a highly efficient, entity-linked invalidation model:
+- **Dependency Mapping**: In `src/api.py`, `set_cached_query()` extracts entity dependencies from both the query string (via `query_linker`) and relationship strings returned by Neo4j (`entity1 --[relation]--> entity2`).
+- **Selective Eviction**: Mappings are stored in Redis Sets (`cache:entity_to_queries:{entity_name}`) with a 24-hour expiration or in a local fallback dict. Upon ingestion, only the query keys associated with modified entities (`state.extracted_entities`) are deleted, keeping the remaining cache warm.
+
+### 🧠 2. LLM-Powered Entity Resolution Judge
+To prevent incorrect graph merges from simple vector similarities (e.g., merging "Python" and "PyTorch" due to contextual token overlap), we implemented a high-precision **LLM Judge** verification pass:
+- **High-Precision Filtering**: Embeddings cosine similarity targets candidates above `0.92`. Neo4j pulls name, type, and description attributes for both candidates.
+- **Structured LLM Assessment**: `gemini-2.0-flash` processes candidate pairs with zero temperature, enforcing a strict JSON output contract: `{"same_entity": bool, "reason": "..."}`.
+- **Resilient Fallback**: In the event of network failures or API key exhaustion, it automatically defaults to cosine similarity clustering to ensure uninterrupted pipeline operation.
+
+### 🔄 3. SSE Real-Time Response Streaming
+First-token latency is crucial for modern AI dashboard responsiveness. RAG-View provides full Server-Sent Events (SSE) streaming support:
+- **SSE Protocol**: The API exposes `/v1/ask/stream` using FastAPI's `StreamingResponse` yielding chunked JSON packets (`data: {"type": "token", "content": "..."}`) and a final metadata package containing verified citations and confidence scores.
+- **Simulated Streaming**: On query cache hits, RAG-View simulates a fast token-by-token stream to offer a uniform conversational UI flow.
+- **Frontend Client**: Streamlit parses the stream asynchronously via `requests.post(..., stream=True)` with an instant retrieve-and-stream fallback if the API is offline.
+
+### 🛡️ 4. Distributed Redis Rate Limiting
+To ensure protection against high-volume API abuses across multiple container replicas, rate limiting is backed by Redis:
+- **Distributed Limiter**: Uses SlowAPI configured with `REDIS_URL` as a shared distributed backend, enforcing consistent rate-limiting across horizontally-scaled API nodes.
+- **Endpoint Limits**: Configured strictly by endpoint weight (e.g. `10/min` for query streams, `5/min` for raw document ingestion, and `30/min` for read-only metadata lookups).
 
 ---
 
