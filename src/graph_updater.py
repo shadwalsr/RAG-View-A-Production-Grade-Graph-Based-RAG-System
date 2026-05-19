@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import time
 from typing import Optional
 
@@ -26,6 +26,8 @@ class GraphUpdateState(BaseModel):
     total_entities_extracted: int = Field(default=0, description="Total number of entities extracted across all updates")
     total_relationships_extracted: int = Field(default=0, description="Total number of relationships extracted across all updates")
     total_relationships_weighted: int = Field(default=0, description="Total number of relationships updated with frequency weights")
+    extracted_entities: list[str] = Field(default_factory=list, description="Unique lowercased entity names extracted in the last ingestion run")
+
 
 class GraphUpdater:
     """
@@ -77,6 +79,7 @@ class GraphUpdater:
         Extracts entities, resolves duplicates, updates weights, and refreshes macro-communities.
         """
         logger.info(f"GraphUpdater starting incremental ingestion for source: '{source_name}'")
+        extracted_entities_all = set()
         
         # 1.
         chunks = text_processor.chunk_text(raw_text, {"source": source_name})
@@ -97,6 +100,8 @@ class GraphUpdater:
                 # Ingest into Neo4j.
                 graph_store.ingest_extraction(extraction)
                 entity_names = [e.name for e in extraction.entities]
+                for name in entity_names:
+                    extracted_entities_all.add(name.strip().lower())
             except Exception as e:
                 logger.warning(f"GraphUpdater entity extraction skipped/failed for chunk {chunk['id']} (likely 429 quota limit): {e}. Proceeding with Hybrid Vector Ingestion.")
 
@@ -141,6 +146,7 @@ class GraphUpdater:
             logger.error(f"GraphUpdater Community Detection pass failed: {e}")
 
         self.state.last_updated_at = time.time()
+        self.state.extracted_entities = list(extracted_entities_all)
         logger.info(f"GraphUpdater incremental ingestion complete for '{source_name}'.")
         return self.state
 

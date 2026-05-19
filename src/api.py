@@ -106,6 +106,8 @@ def get_api_key(api_key: str = Security(api_key_header)):
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client: Optional[redis.Redis] = None
 fallback_cache: Dict[str, Any] = {}
+fallback_entity_to_queries: Dict[str, set] = {}
+
 
 # --- Rate Limiting Setup ---.
 limiter_storage = REDIS_URL if not os.getenv("DRY_RUN") else "memory://"
@@ -148,6 +150,42 @@ def set_cached_query(query: str, response_data: Dict[str, Any]):
             logger.warning(f"Redis set error: {e}")
     else:
         fallback_cache[cache_key] = response_data
+
+    # Extract entity names from query
+    entity_names = set()
+    try:
+        from src.query_linker import query_linker
+        for ent in query_linker.extract_entities(query):
+            entity_names.add(ent.strip().lower())
+    except Exception as e:
+        logger.warning(f"Error extracting entities from query for caching: {e}")
+
+    # Extract entity names from returned relationships
+    for rel_str in response_data.get("relationships", []):
+        try:
+            if " --[" in rel_str and "]--> " in rel_str:
+                parts = rel_str.split(" --[")
+                ent1 = parts[0].strip().lower()
+                ent2 = parts[1].split("]--> ")[1].strip().lower()
+                entity_names.add(ent1)
+                entity_names.add(ent2)
+        except Exception as e:
+            logger.warning(f"Error extracting entities from relationship string '{rel_str}': {e}")
+
+    # Map the cache_key to entities
+    for entity_name in entity_names:
+        if redis_client:
+            try:
+                redis_key = f"cache:entity_to_queries:{entity_name}"
+                redis_client.sadd(redis_key, cache_key)
+                redis_client.expire(redis_key, 86400)
+            except Exception as e:
+                logger.warning(f"Redis sadd/expire error for entity '{entity_name}': {e}")
+        else:
+            if entity_name not in fallback_entity_to_queries:
+                fallback_entity_to_queries[entity_name] = set()
+            fallback_entity_to_queries[entity_name].add(cache_key)
+
 
 app = FastAPI(
     title="RAG-View Graph Intelligence API",
@@ -381,22 +419,56 @@ class RedisJobsStore:
 
 jobs_store = RedisJobsStore()
 
-def purge_query_cache(job_id: str):
-    global fallback_cache
-    logger.info(f"Job {job_id}: Purging query cache after successful ingestion.")
-    fallback_cache.clear()
-    if redis_client:
-        try:
-            keys = []
-            for key in redis_client.scan_iter(match="cache:query:*"):
-                keys.append(key)
-            if keys:
-                redis_client.delete(*keys)
-                logger.info(f"Successfully deleted {len(keys)} cached query keys from Redis.")
+def purge_query_cache(job_id: str, entities: Optional[List[str]] = None):
+    global fallback_cache, fallback_entity_to_queries
+    logger.info(f"Job {job_id}: Purging query cache with entities={entities}")
+    
+    if entities:
+        # Granular invalidation
+        for ent in entities:
+            ent_norm = ent.strip().lower()
+            if redis_client:
+                try:
+                    redis_ent_key = f"cache:entity_to_queries:{ent_norm}"
+                    # Retrieve all query cache keys mapped to this entity
+                    query_keys = redis_client.smembers(redis_ent_key)
+                    if query_keys:
+                        # Delete query keys from Redis
+                        redis_client.delete(*query_keys)
+                        logger.info(f"Deleted {len(query_keys)} query keys for entity '{ent_norm}' from Redis.")
+                    # Delete the entity-to-query set itself
+                    redis_client.delete(redis_ent_key)
+                except Exception as e:
+                    logger.warning(f"Failed to purge Redis cache for entity '{ent_norm}': {e}")
             else:
-                logger.info("No cached query keys found in Redis to purge.")
-        except Exception as e:
-            logger.warning(f"Failed to purge Redis query cache: {e}")
+                if ent_norm in fallback_entity_to_queries:
+                    query_keys = fallback_entity_to_queries[ent_norm]
+                    for qk in query_keys:
+                        if qk in fallback_cache:
+                            del fallback_cache[qk]
+                    del fallback_entity_to_queries[ent_norm]
+                    logger.info(f"Deleted {len(query_keys)} query keys for entity '{ent_norm}' from fallback cache.")
+    else:
+        # Full purge
+        fallback_cache.clear()
+        fallback_entity_to_queries.clear()
+        if redis_client:
+            try:
+                # Delete all cache:query:* keys
+                keys_to_delete = []
+                for key in redis_client.scan_iter(match="cache:query:*"):
+                    keys_to_delete.append(key)
+                for key in redis_client.scan_iter(match="cache:entity_to_queries:*"):
+                    keys_to_delete.append(key)
+                
+                if keys_to_delete:
+                    redis_client.delete(*keys_to_delete)
+                    logger.info(f"Successfully deleted {len(keys_to_delete)} cached keys from Redis.")
+                else:
+                    logger.info("No cached keys found in Redis to purge.")
+            except Exception as e:
+                logger.warning(f"Failed to purge Redis query cache: {e}")
+
 
 def process_ingestion_job(job_id: str, text: str, source_name: str):
     logger.info(f"Job {job_id}: Starting background ingestion for source '{source_name}'")
@@ -417,7 +489,7 @@ def process_ingestion_job(job_id: str, text: str, source_name: str):
         logger.info(f"Job {job_id}: Successfully completed ingestion for '{source_name}'")
         
         # Purge Redis query cache after successful ingestion!
-        purge_query_cache(job_id)
+        purge_query_cache(job_id, entities=state.extracted_entities)
         
     except Exception as e:
         logger.error(f"Job {job_id}: Ingestion failed with error: {e}")

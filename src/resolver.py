@@ -1,4 +1,7 @@
-﻿import logging
+import logging
+import os
+import json
+from google import genai
 from collections import defaultdict
 from typing import Any, Dict, List, Set
 
@@ -15,6 +18,70 @@ class EntityResolver:
 
     def __init__(self, similarity_threshold: float = 0.92):
         self.similarity_threshold = similarity_threshold
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY")) if os.getenv("GEMINI_API_KEY") else None
+
+
+    def _verify_with_llm(self, ent1: Dict[str, Any], ent2: Dict[str, Any]) -> bool:
+        """
+        Uses an LLM judge to verify if two similar entities are indeed the same real-world entity.
+        """
+        if not self.client:
+            logger.warning("LLM client not initialized (GEMINI_API_KEY may be missing). Falling back to True.")
+            return True
+
+        prompt = f"""You are a precise Entity Resolution system. Decide whether the following two entities represent the EXACT SAME real-world entity.
+
+Entity 1:
+- Name: {ent1.get('name')}
+- Type: {ent1.get('type')}
+- Description: {ent1.get('description')}
+
+Entity 2:
+- Name: {ent2.get('name')}
+- Type: {ent2.get('type')}
+- Description: {ent2.get('description')}
+
+Provide your response in a professional JSON format exactly like this:
+{{
+  "same_entity": true or false,
+  "reason": "Explain your decision clearly and concisely based on entity types, names, and descriptions."
+}}
+"""
+        try:
+            from google.genai import types
+            
+            def _call():
+                response = self.client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,
+                        max_output_tokens=1024,
+                        response_mime_type="application/json"
+                    )
+                )
+                return response.text
+
+            from src.extractor import _retry_with_backoff
+            raw_response = _retry_with_backoff(_call)
+            
+            # Clean response just in case
+            cleaned = raw_response.strip()
+            if cleaned.startswith("```"):
+                first_newline = cleaned.index("\n")
+                cleaned = cleaned[first_newline + 1 :]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            
+            data = json.loads(cleaned)
+            same_entity = data.get("same_entity", True)
+            reason = data.get("reason", "")
+            logger.info(f"LLM Judge result for '{ent1.get('name')}' vs '{ent2.get('name')}': {same_entity} (Reason: {reason})")
+            return bool(same_entity)
+        except Exception as e:
+            logger.error(f"LLM Judge verification failed: {e}. Falling back to True.")
+            return True
 
     def _find_similar_pairs(self) -> List[Dict[str, Any]]:
         """
@@ -31,16 +98,23 @@ class EntityResolver:
         WHERE id(e1) < id(e2) AND e1.embedding IS NOT NULL AND e2.embedding IS NOT NULL
         WITH e1, e2, vector.similarity.cosine(e1.embedding, e2.embedding) AS score
         WHERE score >= $threshold
-        RETURN e1.id AS id1, e2.id AS id2, score
+        RETURN e1.id AS id1, e1.name AS name1, e1.type AS type1, e1.description AS description1,
+               e2.id AS id2, e2.name AS name2, e2.type AS type2, e2.description AS description2,
+               score
         """
         try:
             results = db.query(query, {"threshold": self.similarity_threshold})
-            return [
-                {"id1": r["id1"], "id2": r["id2"], "score": r["score"]} for r in results
-            ]
+            pairs = []
+            for r in results:
+                ent1 = {"id": r["id1"], "name": r["name1"], "type": r["type1"], "description": r["description1"]}
+                ent2 = {"id": r["id2"], "name": r["name2"], "type": r["type2"], "description": r["description2"]}
+                if self._verify_with_llm(ent1, ent2):
+                    pairs.append({"id1": r["id1"], "id2": r["id2"], "score": r["score"]})
+            return pairs
         except Exception as e:
             logger.error(f"Failed to find similar pairs: {e}")
             return []
+
 
     def _build_clusters(self, pairs: List[Dict[str, Any]]) -> List[Set[str]]:
         """

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import logging
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 def test_graph_updater_logic():
     logger.info("--- Testing GraphUpdater & Incremental State Management ---")
     db.is_dry_run = True
+    graph_updater.state = GraphUpdateState()
     
     # Bypass 429 Quota errors for the test by mocking extractor client.
     graph_updater.extractor.client = None
