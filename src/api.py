@@ -20,6 +20,7 @@ from fastapi import (
     Security,
     status,
 )
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -101,13 +102,14 @@ def get_api_key(api_key: str = Security(api_key_header)):
         )
     return api_key
 
-# --- Rate Limiting Setup ---.
-limiter = Limiter(key_func=get_remote_address)
-
 # --- Redis Caching Setup ---.
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client: Optional[redis.Redis] = None
 fallback_cache: Dict[str, Any] = {}
+
+# --- Rate Limiting Setup ---.
+limiter_storage = REDIS_URL if not os.getenv("DRY_RUN") else "memory://"
+limiter = Limiter(key_func=get_remote_address, storage_uri=limiter_storage)
 
 try:
     if not os.getenv("DRY_RUN"):
@@ -222,6 +224,111 @@ def ask_endpoint(request: Request, payload: AskRequest):
     except Exception as e:
         logger.error(f"API /v1/ask failed: {e}")
         raise HTTPException(status_code=500, detail=f"Generation pipeline failed: {e}")
+
+@app.post("/v1/ask/stream", tags=["Generation"], summary="Graph-Grounded QA Streaming Generation")
+@limiter.limit("10/minute")
+def ask_stream_endpoint(request: Request, payload: AskRequest):
+    """
+    Executes the full GraphRAG generation pipeline and streams the generated tokens.
+    1. Checks Redis query cache before streaming.
+    2. Orchestrates parallel hybrid retrieval (Vector + BM25 + Graph Traversal) via RRF.
+    3. Streams the answer token by token.
+    4. Post-verifies the accumulated response.
+    5. Calculates confidence metrics and yields the final metadata block.
+    """
+    logger.info(f"API /v1/ask/stream received query: '{payload.query}'")
+    
+    # 0. Check cache first
+    cached_result = get_cached_query(payload.query)
+    if cached_result:
+        logger.info(f"Stream cache hit for query: '{payload.query}'")
+        answer = cached_result.get("answer", "")
+        report = cached_result.get("confidence_report", {})
+        rels = cached_result.get("relationships", [])
+        
+        def stream_cached():
+            try:
+                words = answer.split(" ")
+                for i, word in enumerate(words):
+                    token = word + (" " if i < len(words) - 1 else "")
+                    chunk = {"type": "token", "content": token}
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    import time
+                    time.sleep(0.01)
+                
+                metadata_chunk = {
+                    "type": "metadata",
+                    "verified_answer": answer,
+                    "confidence_score": report.get("retrieval_confidence", 0.0),
+                    "grounding_confidence": report.get("grounding_confidence", 0.0),
+                    "graph_coverage": report.get("graph_coverage", 0.0),
+                    "relationships": rels
+                }
+                yield f"data: {json.dumps(metadata_chunk)}\n\n"
+            except Exception as e:
+                logger.error(f"Error during cached stream: {e}")
+                
+        return StreamingResponse(stream_cached(), media_type="text/event-stream")
+
+    # 1. Missed cache. Retrieve resources.
+    try:
+        fused_context = retriever.retrieve(payload.query)
+        
+        from src.graph_retriever import graph_retriever
+        from src.query_linker import query_linker
+        query_entities = query_linker.extract_entities(payload.query)
+        graph_data = graph_retriever.traverse(query_entities)
+        rels = graph_data.get("relationships", [])
+    except Exception as e:
+        logger.error(f"Retrieval failed before streaming: {e}")
+        # Yield the error block immediately
+        def stream_error():
+            err_chunk = {"type": "token", "content": f"❌ Retrieval pipeline failed: {str(e)}"}
+            yield f"data: {json.dumps(err_chunk)}\n\n"
+        return StreamingResponse(stream_error(), media_type="text/event-stream")
+
+    def stream_generation():
+        accumulated_answer = ""
+        try:
+            # 2. Generate answer stream
+            for token in graph_rag_generator.generate_answer_stream(payload.query, fused_context):
+                accumulated_answer += token
+                chunk = {"type": "token", "content": token}
+                yield f"data: {json.dumps(chunk)}\n\n"
+            
+            # 3. Post-verification
+            verified_answer = graph_citation_verifier.verify(payload.query, accumulated_answer, fused_context)
+            
+            # 4. Confidence scoring
+            report = confidence_scorer.score(payload.query, verified_answer, fused_context)
+            
+            response_data = {
+                "query": payload.query,
+                "answer": verified_answer,
+                "confidence_report": report.model_dump(),
+                "relationships": rels
+            }
+            
+            # Cache the result.
+            set_cached_query(payload.query, response_data)
+            
+            # Send the final metadata block
+            metadata_chunk = {
+                "type": "metadata",
+                "verified_answer": verified_answer,
+                "confidence_score": report.retrieval_confidence,
+                "grounding_confidence": report.grounding_confidence,
+                "graph_coverage": report.graph_coverage,
+                "relationships": rels
+            }
+            yield f"data: {json.dumps(metadata_chunk)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error during stream generation: {e}")
+            err_chunk = {"type": "token", "content": f"\n❌ Generation failed: {str(e)}"}
+            yield f"data: {json.dumps(err_chunk)}\n\n"
+
+    return StreamingResponse(stream_generation(), media_type="text/event-stream")
 
 # --- Redis-Backed Job Queue Storage ---
 # Implements Redis persistence with seamless in-memory fallback.

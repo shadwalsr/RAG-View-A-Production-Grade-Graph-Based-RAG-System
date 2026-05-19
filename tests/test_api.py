@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import logging
 from fastapi.testclient import TestClient
@@ -49,6 +49,33 @@ def test_api_endpoints():
     assert res_cached.status_code == 200
     assert res_cached.json() == data
     logger.info("Successfully verified query caching hit.")
+
+    # 1c.
+    logger.info("\nTesting POST /v1/ask/stream...")
+    res_stream = client.post("/v1/ask/stream", json={"query": "What company did Shadwal Singh found?"}, headers=auth_headers)
+    assert res_stream.status_code == 200
+    
+    import json
+    tokens = []
+    metadata = None
+    for line in res_stream.iter_lines():
+        if line:
+            decoded = line.decode("utf-8").strip()
+            if decoded.startswith("data: "):
+                chunk = json.loads(decoded[6:].strip())
+                if chunk["type"] == "token":
+                    tokens.append(chunk["content"])
+                elif chunk["type"] == "metadata":
+                    metadata = chunk
+                    
+    assert len(tokens) > 0
+    assert metadata is not None
+    assert "verified_answer" in metadata
+    assert "confidence_score" in metadata
+    assert "grounding_confidence" in metadata
+    assert "graph_coverage" in metadata
+    assert "relationships" in metadata
+    logger.info(f"Successfully streamed {len(tokens)} tokens and retrieved final metadata: {metadata}")
     
     # 2.
     logger.info("\nTesting POST /v1/ingest...")

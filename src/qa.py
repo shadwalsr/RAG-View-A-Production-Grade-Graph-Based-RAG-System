@@ -1,5 +1,9 @@
-﻿import logging
+import logging
 import os
+import time
+import json
+from typing import Generator
+import requests
 
 from dotenv import load_dotenv
 from google import genai
@@ -157,6 +161,185 @@ USER QUESTION: {query}
                 logger.error(f"Failed to generate answer via Gemini: {e}")
                 clean_context = fused_context.strip() if fused_context else "No direct context chunks found."
                 return f"**[Gemini API Rate-Limit Fallback]**\n\nBased on the retrieved knowledge graph and document context, here are the grounded findings for your query:\n\n```text\n{clean_context}\n```\n\n*(Note: Live Gemini LLM synthesis is temporarily paused due to free-tier API quota limits. The exact retrieved context above is provided for complete transparency.)*"
+
+    def generate_answer_stream(self, query: str, fused_context: str) -> Generator[str, None, None]:
+        """
+        Streams Gemini/Groq/OpenAI/Ollama response chunks based on the fused context.
+        """
+        logger.info("Generating final answer stream via GraphRAG LLM...")
+        
+        prompt = f"""You are an advanced GraphRAG analytical engine (GraphRAGGenerator).
+You must answer the user's question using ONLY the grounded context provided below.
+
+=== GRAPH-GROUNDED GENERATION PROMPT ===
+
+SECTION 1: RETRIEVED TEXT CHUNKS
+The context below includes retrieved unstructured text chunks labeled with [Source N]. You must use these sources to ground your answer.
+
+SECTION 2: STRUCTURED RELATIONSHIP BLOCK
+The context below also includes a structured relationship block listing facts extracted from the knowledge graph. This relationship block significantly reduces hallucinations on multi-hop questions by providing explicit entity-to-entity links.
+
+SECTION 3: HARD RULES
+1. Cite Sources: You MUST cite the specific [Source N] labels or graph relationships for every claim, fact, or statement you make.
+2. Flag Uncertainty: If the context contains conflicting information or ambiguity, you MUST explicitly flag your uncertainty to the user.
+3. Refuse if Confidence is Low: If the provided context does not contain sufficient information to answer the query with high confidence, you MUST refuse to answer by explicitly stating: "I do not have enough information in my context to answer this."
+
+=== GROUNDED CONTEXT ===
+{fused_context}
+========================
+
+USER QUESTION: {query}
+"""
+
+        if os.getenv("DRY_RUN") == "true":
+            logger.warning("[DRY RUN] Bypassing LLM API. Streaming mock answer.")
+            mock_response = f"[MOCK ANSWER for query: {query}]\n\nContext used:\n{fused_context}"
+            words = mock_response.split(" ")
+            for i, word in enumerate(words):
+                yield word + (" " if i < len(words) - 1 else "")
+                time.sleep(0.03)
+            return
+
+        provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+
+        if provider == "groq":
+            logger.info("Streaming from Groq API...")
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                yield "❌ GROQ_API_KEY is missing from .env. Please add it to use Groq."
+                return
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                "messages": [
+                    {"role": "system", "content": "You are an advanced GraphRAG analytical engine. Provide clear, concise, professional answers without repetition."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1024,
+                "stream": True
+            }
+            
+            try:
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, stream=True, timeout=30)
+                if res.status_code == 200:
+                    for line in res.iter_lines():
+                        if line:
+                            decoded_line = line.decode("utf-8").strip()
+                            if decoded_line.startswith("data: "):
+                                data_content = decoded_line[6:].strip()
+                                if data_content == "[DONE]":
+                                    break
+                                try:
+                                    chunk_json = json.loads(data_content)
+                                    choices = chunk_json.get("choices", [])
+                                    if choices:
+                                        delta = choices[0].get("delta", {})
+                                        content = delta.get("content", "")
+                                        if content:
+                                            yield content
+                                except Exception as json_err:
+                                    logger.error(f"Groq SSE JSON decode error: {json_err}")
+                else:
+                    logger.error(f"Groq API error: {res.text}")
+                    yield f"❌ Groq API Error ({res.status_code}): {res.text}"
+            except Exception as e:
+                logger.error(f"Groq exception: {e}")
+                yield f"❌ Groq Execution Error: {e}"
+
+        elif provider == "openai":
+            logger.info("Streaming from OpenAI API...")
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                yield "❌ OPENAI_API_KEY is missing from .env. Please add it to use OpenAI."
+                return
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                "messages": [
+                    {"role": "system", "content": "You are an advanced GraphRAG analytical engine."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "stream": True
+            }
+            try:
+                res = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, stream=True, timeout=30)
+                if res.status_code == 200:
+                    for line in res.iter_lines():
+                        if line:
+                            decoded_line = line.decode("utf-8").strip()
+                            if decoded_line.startswith("data: "):
+                                data_content = decoded_line[6:].strip()
+                                if data_content == "[DONE]":
+                                    break
+                                try:
+                                    chunk_json = json.loads(data_content)
+                                    choices = chunk_json.get("choices", [])
+                                    if choices:
+                                        delta = choices[0].get("delta", {})
+                                        content = delta.get("content", "")
+                                        if content:
+                                            yield content
+                                except Exception as json_err:
+                                    logger.error(f"OpenAI SSE JSON decode error: {json_err}")
+                else:
+                    logger.error(f"OpenAI API error: {res.text}")
+                    yield f"❌ OpenAI API Error ({res.status_code}): {res.text}"
+            except Exception as e:
+                logger.error(f"OpenAI exception: {e}")
+                yield f"❌ OpenAI Execution Error: {e}"
+
+        elif provider == "ollama":
+            logger.info("Streaming from local Ollama...")
+            ollama_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
+            payload = {
+                "model": os.getenv("OLLAMA_MODEL", "llama3"),
+                "prompt": prompt,
+                "stream": True
+            }
+            try:
+                res = requests.post(f"{ollama_url.rstrip('/')}/api/generate", json=payload, stream=True, timeout=300)
+                if res.status_code == 200:
+                    for line in res.iter_lines():
+                        if line:
+                            try:
+                                chunk_json = json.loads(line.decode("utf-8"))
+                                text_chunk = chunk_json.get("response", "")
+                                if text_chunk:
+                                    yield text_chunk
+                            except Exception as json_err:
+                                logger.error(f"Ollama JSON decode error: {json_err}")
+                else:
+                    logger.error(f"Ollama API error: {res.text}")
+                    yield f"❌ Ollama API Error ({res.status_code}): Ensure Ollama is running and model '{payload['model']}' is pulled."
+            except Exception as e:
+                logger.error(f"Ollama exception: {e}")
+                yield f"❌ Ollama Connection Error: {e}. Ensure Ollama is running on your machine."
+
+        else:
+            # Default Gemini.
+            if not self.client:
+                yield "❌ GEMINI_API_KEY is missing or invalid in .env."
+                return
+            try:
+                response = self.client.models.generate_content_stream(
+                    model=self.model_name,
+                    contents=prompt
+                )
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+            except Exception as e:
+                logger.error(f"Failed to generate answer stream via Gemini: {e}")
+                fallback_msg = f"**[Gemini API Rate-Limit Fallback]**\n\nBased on the retrieved knowledge graph and document context, here are the grounded findings for your query:\n\n```text\n{fused_context.strip() if fused_context else 'No direct context chunks found.'}\n```\n\n*(Note: Live Gemini LLM synthesis is temporarily paused due to free-tier API quota limits.)*"
+                yield fallback_msg
 
 # Global instance.
 graph_rag_generator = GraphRAGGenerator()

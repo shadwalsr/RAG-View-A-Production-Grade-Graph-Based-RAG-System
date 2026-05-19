@@ -48,6 +48,79 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 API_KEY = os.getenv("API_KEY", "rag_view_secret_key_2026")
 AUTH_HEADERS = {"X-API-Key": API_KEY}
 
+def ask_graph_rag_stream(query: str):
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        res = requests.post(
+            f"{API_URL}/v1/ask/stream",
+            json={"query": query},
+            headers=AUTH_HEADERS,
+            stream=True,
+            timeout=120
+        )
+        if res.status_code == 200:
+            for line in res.iter_lines():
+                if line:
+                    decoded = line.decode("utf-8").strip()
+                    if decoded.startswith("data: "):
+                        try:
+                            payload = json.loads(decoded[6:].strip())
+                            yield payload
+                        except Exception as json_err:
+                            logger.error(f"Error parsing SSE json: {json_err}")
+            return
+        else:
+            logger.warning(f"API /v1/ask/stream returned {res.status_code}: {res.text[:200]}")
+    except Exception as e:
+        logger.warning(f"API /v1/ask/stream connection failed: {e}")
+
+    # Local fallback
+    try:
+        logger.info("Falling back to local streaming pipeline for query...")
+        from src.retriever import retriever
+        from src.query_linker import query_linker
+        from src.graph_retriever import graph_retriever
+        from src.qa import graph_rag_generator
+        from src.verifier import graph_citation_verifier
+        from src.scorer import confidence_scorer
+        
+        fused = retriever.retrieve(query)
+        q_ents = query_linker.extract_entities(query)
+        g_data = graph_retriever.traverse(q_ents)
+        rels = g_data.get("relationships", [])
+        
+        accumulated = ""
+        for token in graph_rag_generator.generate_answer_stream(query, fused):
+            accumulated += token
+            yield {"type": "token", "content": token}
+            
+        verified = graph_citation_verifier.verify(query, accumulated, fused)
+        report = confidence_scorer.score(query, verified, fused)
+        
+        yield {
+            "type": "metadata",
+            "verified_answer": verified,
+            "confidence_score": report.retrieval_confidence,
+            "grounding_confidence": report.grounding_confidence,
+            "graph_coverage": report.graph_coverage,
+            "relationships": rels
+        }
+    except Exception as local_err:
+        import traceback
+        logger.error(f"Local streaming fallback also failed: {local_err}\n{traceback.format_exc()}")
+        yield {"type": "token", "content": "⚠️ I am currently unable to reach the FastAPI backend or local LLM engine. Please verify that your API container is running and your API keys are correctly configured in .env."}
+        yield {
+            "type": "metadata",
+            "verified_answer": "⚠️ I am currently unable to reach the FastAPI backend or local LLM engine. Please verify that your API container is running and your API keys are correctly configured in .env.",
+            "confidence_score": 0.0,
+            "grounding_confidence": 0.0,
+            "graph_coverage": 0.0,
+            "relationships": []
+        }
+
 def ask_graph_rag(query: str):
     try:
         res = requests.post(f"{API_URL}/v1/ask", json={"query": query}, headers=AUTH_HEADERS, timeout=120)
@@ -211,23 +284,62 @@ if active_tab == "GraphRAG Chat":
         # 2.
         body = chat_messages_html(st.session_state.chat_history)
         st.markdown(chat_card(chat_card_header(), "RRF ENABLED", body), unsafe_allow_html=True)
-
         # 3.
         if st.session_state.pending_query:
             query_to_ask = st.session_state.pending_query
             st.session_state.pending_query = None
-            with st.spinner("Searching knowledge graph & generating grounded answer..."):
-                res = ask_graph_rag(query_to_ask)
-                rels = res.get("relationships", [])
-                doc_pill = f"Doc: {res.get('query', 'Corpus')[:15]}"
-                node_pill = f"Node: {rels[0].split(' --')[0][:15]}" if rels else "Node: Graph"
-                st.session_state.chat_history.append({
-                    "role": "assistant", "content": res["answer"],
-                    "pills": [("description", doc_pill), ("share", node_pill)],
-                    "metrics": {"rec": res["confidence_score"], "gro": res["grounding_confidence"], "cov": res["graph_coverage"]},
-                    "relationships": rels
-                })
-                st.rerun()
+            
+            # Append an empty assistant message
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": "",
+                "pills": [("description", f"Doc: {query_to_ask[:15]}"), ("share", "Node: Streaming")],
+                "metrics": {"rec": 0.0, "gro": 0.0, "cov": 0.0},
+                "relationships": []
+            })
+            
+            # Create a Streamlit empty container
+            placeholder = st.empty()
+            
+            # Streaming accumulation variables
+            accumulated_text = ""
+            final_verified = ""
+            final_metrics = {"rec": 0.0, "gro": 0.0, "cov": 0.0}
+            final_rels = []
+            
+            # Loop over ask_graph_rag_stream
+            for chunk in ask_graph_rag_stream(query_to_ask):
+                if chunk.get("type") == "token":
+                    accumulated_text += chunk.get("content", "")
+                    # Update history
+                    st.session_state.chat_history[-1]["content"] = accumulated_text
+                    # Rerender chat in the placeholder container
+                    body_html = chat_messages_html(st.session_state.chat_history)
+                    placeholder.markdown(chat_card(chat_card_header(), "RRF ENABLED", body_html), unsafe_allow_html=True)
+                elif chunk.get("type") == "metadata":
+                    final_verified = chunk.get("verified_answer", accumulated_text)
+                    final_metrics = {
+                        "rec": chunk.get("confidence_score", 0.0),
+                        "gro": chunk.get("grounding_confidence", 0.0),
+                        "cov": chunk.get("graph_coverage", 0.0)
+                    }
+                    final_rels = chunk.get("relationships", [])
+
+            # Fallback to accumulated text if verified answer was empty
+            if not final_verified:
+                final_verified = accumulated_text
+                
+            # Overwrite final assistant message
+            st.session_state.chat_history[-1]["content"] = final_verified
+            st.session_state.chat_history[-1]["metrics"] = final_metrics
+            st.session_state.chat_history[-1]["relationships"] = final_rels
+            
+            # Update pills dynamically
+            doc_pill = f"Doc: {query_to_ask[:15]}"
+            node_pill = f"Node: {final_rels[0].split(' --')[0][:15]}" if final_rels else "Node: Graph"
+            st.session_state.chat_history[-1]["pills"] = [("description", doc_pill), ("share", node_pill)]
+            
+            st.rerun()
     with col_r:
         last_ast = [x for x in st.session_state.chat_history if x["role"] == "assistant"][-1]
         rels = last_ast.get("relationships", [])
