@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 
 import requests
@@ -169,7 +169,7 @@ TABS = {
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "GraphRAG Chat"
 
-st.markdown("<div style='height:64px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 
 active_tab = st.radio("nav", list(TABS.keys()),
     index=list(TABS.keys()).index(st.session_state.active_tab),
@@ -179,7 +179,7 @@ if active_tab != st.session_state.active_tab:
     st.rerun()
 
 # ── Spacer ──.
-st.markdown("""<div style='height:48px; display:flex; align-items:center; justify-content:center;'>
+st.markdown("""<div style='height:12px; display:flex; align-items:center; justify-content:center;'>
     <div style='width:60px; height:1px; background:#1a1d25;'></div>
 </div>""", unsafe_allow_html=True)
 
@@ -240,8 +240,8 @@ if active_tab == "GraphRAG Chat":
 
 # ── LIVE GRAPH EXPLORER ──.
 elif active_tab == "Graph Explorer":
-    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#e1e2ec; margin:0 0 4px 48px; letter-spacing:0.03em;'>Knowledge Graph</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='margin:0 0 20px 48px; font-size:13px; color:#4B5563;'>Complete entity-relationship map extracted from your ingested documents.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#e1e2ec; margin:0 0 4px 0; letter-spacing:0.03em;'>Knowledge Graph</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='margin:0 0 20px 0; font-size:13px; color:#4B5563;'>Complete entity-relationship map extracted from your ingested documents.</p>", unsafe_allow_html=True)
 
     # ── Full Graph Visualization ──.
     full_graph = get_full_graph()
@@ -372,7 +372,7 @@ elif active_tab == "Graph Explorer":
 
     # ── Entity Inspector ──.
     st.markdown("<div style='height:32px;'></div>", unsafe_allow_html=True)
-    st.markdown("<h3 style='font-family:Bebas Neue; font-size:22px; color:#e1e2ec; margin:0 0 12px 48px; letter-spacing:0.03em;'>Entity Inspector</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-family:Bebas Neue; font-size:22px; color:#e1e2ec; margin:0 0 12px 0; letter-spacing:0.03em;'>Entity Inspector</h3>", unsafe_allow_html=True)
 
     # Build entity list for selectbox.
     all_entity_names = sorted([n["name"] for n in full_graph["nodes"]]) if full_graph["nodes"] else ["No entities"]
@@ -478,8 +478,8 @@ elif active_tab == "Graph Explorer":
 
 # ── DOCUMENT INGESTION ──.
 elif active_tab == "Ingestion":
-    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#00E5B5; margin:0 0 4px 48px;'>Document Ingestion</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='margin:0 0 16px 48px; font-size:13px; color:#6B7280;'>Upload files to extract entities, build the knowledge graph, and index into vector + keyword stores.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#00E5B5; margin:0 0 4px 0;'>Document Ingestion</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='margin:0 0 16px 0; font-size:13px; color:#6B7280;'>Upload files to extract entities, build the knowledge graph, and index into vector + keyword stores.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns([2, 1], gap="large")
     with c1:
@@ -685,8 +685,8 @@ elif active_tab == "Ingestion":
 
 # ── BENCHMARK ──.
 elif active_tab == "Benchmarks":
-    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#e1e2ec; margin:0 0 4px 48px; letter-spacing:0.03em;'>Benchmark Evaluation</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='margin:0 0 24px 48px; font-size:13px; color:#4B5563;'>72 golden Q&A pairs &middot; LLM-as-a-Judge scoring &middot; Scale 1–5</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-family:Bebas Neue; font-size:28px; color:#e1e2ec; margin:0 0 4px 0; letter-spacing:0.03em;'>Benchmark Evaluation</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='margin:0 0 24px 0; font-size:13px; color:#4B5563;'>72 golden Q&amp;A pairs &middot; LLM-as-a-Judge scoring &middot; Scale 1–5</p>", unsafe_allow_html=True)
 
     # Animated comparison bars.
     tiers = [

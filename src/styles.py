@@ -1,4 +1,4 @@
-﻿"""Minimal CSS for RAG-VIEW dashboard."""
+"""Minimal CSS for RAG-VIEW dashboard."""
 
 FONTS_AND_ICONS = """
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -15,8 +15,23 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"],
 }
 [data-testid="stSidebar"],
 [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-# MainMenu, footer, header, .
-.block-container { padding: 0 !important; max-width: 100% !important; }
+
+/* Remove ALL Streamlit default padding/margin */
+.block-container {
+    padding: 0 !important;
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+    max-width: 100% !important;
+}
+[data-testid="stApp"] > div:first-child { padding-top: 0 !important; }
+.stApp { padding-top: 0 !important; }
+/* Hide default Streamlit header bar */
+[data-testid="stHeader"] { display: none !important; }
+/* Kill the element-container gap Streamlit wraps everything in */
+[data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] {
+    padding: 0 !important;
+    margin: 0 !important;
+}
 
 .stTextInput > div > div > input {
     background-color: #101520 !important;
@@ -103,6 +118,14 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"],
 
 [data-testid="stHorizontalBlock"] { gap: 20px !important; }
 hr { border-color: #1F2937 !important; }
+
+/* Remove Streamlit's auto-added empty top space */
+[data-testid="stAppViewBlockContainer"] {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+/* Collapse the spacing Streamlit adds around markdown blocks */
+.element-container { margin: 0 !important; padding: 0 !important; }
 </style>
 """
 
