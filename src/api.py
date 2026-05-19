@@ -223,24 +223,103 @@ def ask_endpoint(request: Request, payload: AskRequest):
         logger.error(f"API /v1/ask failed: {e}")
         raise HTTPException(status_code=500, detail=f"Generation pipeline failed: {e}")
 
-# --- In-Memory Job Queue Storage ---.
-# In a multi-worker production environment, this would be backed by Redis.
-jobs_store: Dict[str, Dict[str, Any]] = {}
+# --- Redis-Backed Job Queue Storage ---
+# Implements Redis persistence with seamless in-memory fallback.
+class RedisJobsStore:
+    def __init__(self):
+        self._fallback = {}
+
+    def _get_key(self, job_id: str) -> str:
+        return f"rag_view:job:{job_id}"
+
+    def __contains__(self, job_id: str) -> bool:
+        if redis_client:
+            try:
+                return redis_client.exists(self._get_key(job_id)) > 0
+            except Exception as e:
+                logger.warning(f"Redis jobs exists error: {e}")
+        return job_id in self._fallback
+
+    def __getitem__(self, job_id: str) -> Dict[str, Any]:
+        if redis_client:
+            try:
+                data = redis_client.get(self._get_key(job_id))
+                if data:
+                    return json.loads(data)
+            except Exception as e:
+                logger.warning(f"Redis jobs get error: {e}")
+        if job_id in self._fallback:
+            return self._fallback[job_id]
+        raise KeyError(f"Job {job_id} not found.")
+
+    def __setitem__(self, job_id: str, value: Dict[str, Any]):
+        val_copy = dict(value)
+        if val_copy.get("state") and hasattr(val_copy["state"], "model_dump"):
+            val_copy["state"] = val_copy["state"].model_dump()
+        
+        if redis_client:
+            try:
+                # Store with 7 days TTL (604800 seconds) so old jobs are automatically pruned
+                redis_client.setex(self._get_key(job_id), 604800, json.dumps(val_copy))
+                return
+            except Exception as e:
+                logger.warning(f"Redis jobs set error: {e}")
+        self._fallback[job_id] = val_copy
+
+    def get(self, job_id: str, default=None):
+        try:
+            return self[job_id]
+        except KeyError:
+            return default
+
+jobs_store = RedisJobsStore()
+
+def purge_query_cache(job_id: str):
+    global fallback_cache
+    logger.info(f"Job {job_id}: Purging query cache after successful ingestion.")
+    fallback_cache.clear()
+    if redis_client:
+        try:
+            keys = []
+            for key in redis_client.scan_iter(match="cache:query:*"):
+                keys.append(key)
+            if keys:
+                redis_client.delete(*keys)
+                logger.info(f"Successfully deleted {len(keys)} cached query keys from Redis.")
+            else:
+                logger.info("No cached query keys found in Redis to purge.")
+        except Exception as e:
+            logger.warning(f"Failed to purge Redis query cache: {e}")
 
 def process_ingestion_job(job_id: str, text: str, source_name: str):
     logger.info(f"Job {job_id}: Starting background ingestion for source '{source_name}'")
-    jobs_store[job_id]["status"] = "processing"
+    
+    job_data = jobs_store[job_id]
+    job_data["status"] = "processing"
+    jobs_store[job_id] = job_data
+    
     try:
         state = graph_updater.ingest_document(text, source_name)
-        jobs_store[job_id]["status"] = "completed"
-        jobs_store[job_id]["state"] = state
-        jobs_store[job_id]["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        
+        job_data = jobs_store[job_id]
+        job_data["status"] = "completed"
+        job_data["state"] = state
+        job_data["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        jobs_store[job_id] = job_data
+        
         logger.info(f"Job {job_id}: Successfully completed ingestion for '{source_name}'")
+        
+        # Purge Redis query cache after successful ingestion!
+        purge_query_cache(job_id)
+        
     except Exception as e:
         logger.error(f"Job {job_id}: Ingestion failed with error: {e}")
-        jobs_store[job_id]["status"] = "failed"
-        jobs_store[job_id]["error"] = str(e)
-        jobs_store[job_id]["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        
+        job_data = jobs_store[job_id]
+        job_data["status"] = "failed"
+        job_data["error"] = str(e)
+        job_data["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        jobs_store[job_id] = job_data
 
 @app.post("/v1/ingest", response_model=IngestResponse, tags=["Ingestion"], summary="Incremental Document Ingestion (Async)")
 @limiter.limit("5/minute")

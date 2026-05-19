@@ -1,4 +1,4 @@
-﻿"""Minimal HTML components for the RAG-VIEW dashboard."""
+"""Minimal HTML components for the RAG-VIEW dashboard."""
 
 
 def top_nav_html():
@@ -328,31 +328,74 @@ def chat_card(title_html, badge, body_html):
 
 
 def metrics_html(rec=0.92, cov=0.85, gro=0.96):
-    def bar(label, value, color):
-        pct = f"{value*100:.0f}%"
+    def circular_gauge(label, score, color):
+        import math
+        radius = 24
+        circumference = 2 * math.pi * radius  # ~150.8
+        stroke_dashoffset = circumference * (1 - score)
+        pct = f"{score*100:.0f}%"
         return f"""
-<div style="margin-bottom:16px;">
-    <div style="display:flex; justify-content:space-between; font-family:Inter,sans-serif;
-        font-size:12px; margin-bottom:6px;">
-        <span style="color:#6B7280;">{label}</span>
-        <span style="color:{color}; font-weight:600;">{pct}</span>
+<div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:70px;">
+    <div style="position:relative; width:64px; height:64px; display:flex; align-items:center; justify-content:center; margin-bottom:8px;">
+        <svg width="64" height="64" viewBox="0 0 64 64" style="transform: rotate(-90deg);">
+            <circle cx="32" cy="32" r="{radius}" fill="none" stroke="#16181d" stroke-width="4.5" />
+            <circle cx="32" cy="32" r="{radius}" fill="none" stroke="{color}" stroke-width="4.5"
+                    stroke-dasharray="{circumference}" stroke-dashoffset="{stroke_dashoffset}"
+                    stroke-linecap="round"
+                    style="transition: stroke-dashoffset 1s ease-out; filter: drop-shadow(0 0 3px {color}80);" />
+        </svg>
+        <span style="position:absolute; font-family:'Bebas Neue',sans-serif; font-size:14px; color:#e1e2ec; letter-spacing:0.02em;">
+            {pct}
+        </span>
     </div>
-    <div style="height:4px; width:100%; background:#1a1d25; border-radius:4px; overflow:hidden;">
-        <div style="height:100%; width:{value*100}%; background:{color}; border-radius:4px;"></div>
-    </div>
-</div>"""
-    content = bar("Vector Retrieval Confidence", rec, "#00E5B5")
-    content += bar("Graph Structural Coverage", cov, "#00E5B5")
-    content += bar("Final Grounding Score", gro, "#10B981")
+    <span style="font-family:Inter,sans-serif; font-size:9px; color:#6B7280; font-weight:600; letter-spacing:0.04em; text-align:center; text-transform:uppercase; line-height:1.2;">
+        {label}
+    </span>
+</div>
+"""
+
+    def get_color(val):
+        if val >= 0.8:
+            return "#00E5B5"
+        elif val >= 0.5:
+            return "#F59E0B"
+        return "#EF4444"
+        
+    c_rec = get_color(rec)
+    c_cov = get_color(cov)
+    c_gro = get_color(gro)
+    
+    g_rec = circular_gauge("VECTOR<br/>RETRIEVAL", rec, c_rec)
+    g_cov = circular_gauge("GRAPH<br/>COVERAGE", cov, c_cov)
+    g_gro = circular_gauge("GROUNDING<br/>SCORE", gro, c_gro)
+    
     return f"""
-<div style="background:#111318; border:1px solid #1a1d25; border-radius:10px; padding:18px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+<div style="background:#111318; border:1px solid #1a1d25; border-radius:10px; padding:20px 14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid #1a1d25; padding-bottom:12px;">
         <span style="font-family:'Bebas Neue',sans-serif; font-size:18px; color:#e1e2ec;
             letter-spacing:0.04em;">HYBRID SEARCH METRICS</span>
-        <span style="font-family:Inter,sans-serif; font-size:10px; color:#4B5563; font-weight:600;">RRF ACTIVE</span>
+        <span style="font-family:Inter,sans-serif; font-size:10px; color:#00E5B5; font-weight:600;
+            background:rgba(0,229,181,0.06); border:1px solid rgba(0,229,181,0.2); padding:2px 6px; border-radius:4px; letter-spacing:0.04em;">RRF ACTIVE</span>
     </div>
-    {content}
+    <div style="display:flex; justify-content:space-around; align-items:flex-start; gap:4px;">
+        {g_rec}
+        {g_cov}
+        {g_gro}
+    </div>
 </div>"""
+
+
+def render_citations(text: str) -> str:
+    import re
+    def replace_citation(match):
+        source_str = match.group(0)  # e.g., "[Source 1]"
+        source_num = match.group(1)  # e.g., "1"
+        return f"""<span style="display:inline-block; background:rgba(0,229,181,0.12); color:#00E5B5; 
+                     border:1px solid rgba(0,229,181,0.25); border-radius:4px; padding:1px 6px; 
+                     font-size:10px; font-weight:600; cursor:default; margin:0 2px;
+                     font-family:Inter,monospace; vertical-align:middle; transition:all 0.2s;" 
+                     title="Verified Knowledge Base Chunk {source_num}">{source_str}</span>"""
+    return re.sub(r'\[Source\s+([^\]]+)\]', replace_citation, text)
 
 
 def chat_messages_html(messages):
@@ -376,7 +419,9 @@ def chat_messages_html(messages):
                                f'padding:3px 8px; border-radius:4px; margin-right:6px; margin-top:10px;">'
                                f'<span class="material-symbols-outlined" style="font-size:12px;">{icon}</span>'
                                f'{label}</span>')
-            paragraphs = msg['content'].replace('\n\n', '</p><p style="margin-bottom:10px;">')
+            
+            rendered_content = render_citations(msg['content'])
+            paragraphs = rendered_content.replace('\n\n', '</p><p style="margin-bottom:10px;">')
             html += f"""
 <div style="display:flex; justify-content:flex-start; margin-bottom:16px;">
     <div style="max-width:85%; background:#080a0f; color:#b9cac2; padding:16px;
