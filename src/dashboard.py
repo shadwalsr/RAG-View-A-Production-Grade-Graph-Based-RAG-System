@@ -295,7 +295,8 @@ if active_tab == "GraphRAG Chat":
                 "content": "",
                 "pills": [("description", f"Doc: {query_to_ask[:15]}"), ("share", "Node: Streaming")],
                 "metrics": {"rec": 0.0, "gro": 0.0, "cov": 0.0},
-                "relationships": []
+                "relationships": [],
+                "is_streaming": True
             })
             
             # Create a Streamlit empty container
@@ -333,6 +334,7 @@ if active_tab == "GraphRAG Chat":
             st.session_state.chat_history[-1]["content"] = final_verified
             st.session_state.chat_history[-1]["metrics"] = final_metrics
             st.session_state.chat_history[-1]["relationships"] = final_rels
+            st.session_state.chat_history[-1]["is_streaming"] = False
             
             # Update pills dynamically
             doc_pill = f"Doc: {query_to_ask[:15]}"
@@ -586,6 +588,219 @@ elif active_tab == "Graph Explorer":
                         st.markdown(f"<div style='font-family:Inter,sans-serif; font-size:11px; color:#6B7280; text-align:center;'>...and {len(chunks)-3} more chunks.</div>", unsafe_allow_html=True)
                 except Exception:
                     pass
+
+    # ── Admin CRUD Expander ──
+    st.markdown("<div style='height:24px;'></div>", unsafe_allow_html=True)
+    with st.expander("🔧 Graph Adjustments (Admin Panel)"):
+        admin_tabs = st.tabs([
+            "➕ Add Node", 
+            "✏️ Edit Node", 
+            "❌ Delete Node", 
+            "🔗 Add/Edit Relationship", 
+            "💔 Delete Relationship"
+        ])
+        
+        # 1. ADD NODE
+        with admin_tabs[0]:
+            st.markdown("#### Add a New Node")
+            add_name = st.text_input("Node Name", key="admin_add_node_name")
+            add_type = st.selectbox(
+                "Entity Type", 
+                ["ORG", "PERSON", "PROJECT", "SKILL", "CONCEPT", "LOCATION", "EVENT"], 
+                key="admin_add_node_type"
+            )
+            add_desc = st.text_area("Description", key="admin_add_node_desc")
+            
+            if st.button("Add Node", key="btn_admin_add_node"):
+                if not add_name.strip():
+                    st.error("Node Name cannot be empty.")
+                else:
+                    try:
+                        from src.database import db
+                        # Generate vector embedding
+                        embedding = [0.0] * 384
+                        if add_desc.strip():
+                            try:
+                                from src.embedder import embedder
+                                if not hasattr(embedder, "get_embedding"):
+                                    def _get_embedding(text: str):
+                                        return embedder._generate_embeddings_batch([text])[0]
+                                    embedder.get_embedding = _get_embedding
+                                embedding = embedder.get_embedding(add_desc.strip())
+                            except Exception as embed_err:
+                                # fallback to 384 zeros
+                                embedding = [0.0] * 384
+                        
+                        # Cypher
+                        cypher_query = """
+                        MERGE (e:Entity {name: $name})
+                        ON CREATE SET e.type = $type,
+                                      e.description = $desc,
+                                      e.embedding = $embedding,
+                                      e.aliases = [],
+                                      e.source_chunk_ids = []
+                        """
+                        db.query(cypher_query, {
+                            "name": add_name.strip(),
+                            "type": add_type,
+                            "desc": add_desc.strip(),
+                            "embedding": embedding
+                        })
+                        st.success(f"Node '{add_name.strip()}' successfully added.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error adding node: {e}")
+                        
+        # 2. EDIT NODE
+        with admin_tabs[1]:
+            st.markdown("#### Edit an Existing Node")
+            if not full_graph["nodes"]:
+                st.warning("No nodes available to edit.")
+            else:
+                edit_name = st.selectbox("Select Node to Edit", all_entity_names, key="admin_edit_node_select")
+                
+                # Prepopulate
+                current_node = next((n for n in full_graph["nodes"] if n["name"] == edit_name), {})
+                current_type = current_node.get("type", "CONCEPT")
+                
+                current_desc = ""
+                try:
+                    from src.database import db
+                    res = db.query("MATCH (e:Entity {name: $name}) RETURN e.description AS desc", {"name": edit_name})
+                    if res and res[0].get("desc"):
+                        current_desc = res[0]["desc"]
+                except Exception:
+                    pass
+                
+                edit_type = st.selectbox(
+                    "New Entity Type", 
+                    ["ORG", "PERSON", "PROJECT", "SKILL", "CONCEPT", "LOCATION", "EVENT"], 
+                    index=["ORG", "PERSON", "PROJECT", "SKILL", "CONCEPT", "LOCATION", "EVENT"].index(current_type) if current_type in ["ORG", "PERSON", "PROJECT", "SKILL", "CONCEPT", "LOCATION", "EVENT"] else 4,
+                    key="admin_edit_node_type"
+                )
+                edit_desc = st.text_area("New Description", value=current_desc, key="admin_edit_node_desc")
+                
+                if st.button("Update Node", key="btn_admin_edit_node"):
+                    try:
+                        from src.database import db
+                        cypher_query = """
+                        MATCH (e:Entity {name: $name})
+                        SET e.type = $type, e.description = $desc
+                        """
+                        db.query(cypher_query, {
+                            "name": edit_name,
+                            "type": edit_type,
+                            "desc": edit_desc.strip()
+                        })
+                        st.success(f"Node '{edit_name}' successfully updated.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating node: {e}")
+                        
+        # 3. DELETE NODE
+        with admin_tabs[2]:
+            st.markdown("#### Delete a Node")
+            if not full_graph["nodes"]:
+                st.warning("No nodes available to delete.")
+            else:
+                delete_name = st.selectbox("Select Node to Delete", all_entity_names, key="admin_delete_node_select")
+                confirm_delete = st.checkbox("I confirm that I want to permanently delete this node and all its relationships.", key="admin_confirm_delete_node")
+                
+                if st.button("Delete Node", key="btn_admin_delete_node"):
+                    if not confirm_delete:
+                        st.error("Please confirm deletion by checking the confirmation box.")
+                    else:
+                        try:
+                            from src.database import db
+                            cypher_query = """
+                            MATCH (e:Entity {name: $name})
+                            DETACH DELETE e
+                            """
+                            db.query(cypher_query, {"name": delete_name})
+                            st.success(f"Node '{delete_name}' successfully deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting node: {e}")
+                            
+        # 4. ADD/EDIT RELATIONSHIP
+        with admin_tabs[3]:
+            st.markdown("#### Add or Edit a Relationship")
+            if not full_graph["nodes"]:
+                st.warning("No nodes available to link.")
+            else:
+                rel_src = st.selectbox("Source Node", all_entity_names, key="admin_rel_src_select")
+                rel_tgt = st.selectbox("Target Node", all_entity_names, key="admin_rel_tgt_select")
+                rel_type = st.text_input("Relationship Type / Predicate (e.g. FOUNDED_IN, WORKS_AT)", key="admin_rel_type_input")
+                rel_weight = st.slider("Weight", min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="admin_rel_weight_slider")
+                
+                if st.button("Add/Edit Relationship", key="btn_admin_add_rel"):
+                    if not rel_type.strip():
+                        st.error("Relationship Type cannot be empty.")
+                    elif rel_src == rel_tgt:
+                        st.error("Source and Target nodes cannot be the same.")
+                    else:
+                        clean_rel_type = rel_type.strip().upper()
+                        if not clean_rel_type.replace('_', '').isalnum():
+                            st.error("Relationship Type must be alphanumeric (underscores allowed).")
+                        else:
+                            try:
+                                from src.database import db
+                                cypher_query = f"""
+                                MATCH (s:Entity {{name: $src}}), (t:Entity {{name: $tgt}})
+                                MERGE (s)-[r:{clean_rel_type}]->(t)
+                                SET r.weight = $weight
+                                """
+                                db.query(cypher_query, {
+                                    "src": rel_src,
+                                    "tgt": rel_tgt,
+                                    "weight": rel_weight
+                                })
+                                st.success(f"Relationship '{rel_src} --[{clean_rel_type}]--> {rel_tgt}' established with weight {rel_weight}.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error establishing relationship: {e}")
+                                
+        # 5. DELETE RELATIONSHIP
+        with admin_tabs[4]:
+            st.markdown("#### Delete a Relationship")
+            if not full_graph["relationships"]:
+                st.warning("No relationships available to delete.")
+            else:
+                rel_choices = []
+                for r in full_graph["relationships"]:
+                    rel_choices.append(f"{r['src']} --[{r['rel']}]--> {r['tgt']}")
+                
+                selected_rel_str = st.selectbox("Select Relationship to Delete", rel_choices, key="admin_del_rel_select")
+                
+                selected_rel = None
+                for r in full_graph["relationships"]:
+                    curr_str = f"{r['src']} --[{r['rel']}]--> {r['tgt']}"
+                    if curr_str == selected_rel_str:
+                        selected_rel = r
+                        break
+                
+                if selected_rel:
+                    confirm_rel_delete = st.checkbox(f"Confirm deletion of {selected_rel_str}", key="admin_confirm_rel_delete")
+                    if st.button("Delete Relationship", key="btn_admin_delete_rel"):
+                        if not confirm_rel_delete:
+                            st.error("Please check the box to confirm deletion.")
+                        else:
+                            try:
+                                from src.database import db
+                                cypher_query = """
+                                MATCH (s:Entity {name: $src})-[r]->(t:Entity {name: $tgt})
+                                WHERE type(r) = $pred
+                                DELETE r
+                                """
+                                db.query(cypher_query, {
+                                    "src": selected_rel["src"],
+                                    "tgt": selected_rel["tgt"],
+                                    "pred": selected_rel["rel"]
+                                })
+                                st.success(f"Relationship '{selected_rel_str}' successfully deleted.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting relationship: {e}")
 
 
 # ── DOCUMENT INGESTION ──.

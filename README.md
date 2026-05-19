@@ -97,6 +97,28 @@ To ensure protection against high-volume API abuses across multiple container re
 - **Distributed Limiter**: Uses SlowAPI configured with `REDIS_URL` as a shared distributed backend, enforcing consistent rate-limiting across horizontally-scaled API nodes.
 - **Endpoint Limits**: Configured strictly by endpoint weight (e.g. `10/min` for query streams, `5/min` for raw document ingestion, and `30/min` for read-only metadata lookups).
 
+### 📝 5. FastAPI & Pydantic Warning Alignment
+To maintain strict compliance with modern Python API standards and eliminate console clutter:
+- **JSON Schema Extra**: Legacy `example` attributes inside Pydantic `Field(...)` are fully migrated to `json_schema_extra={"examples": [...]}` parameters.
+- **FastAPI OpenAPI Realignment**: Traditional Query/Path/Body parameter `example` tags are updated to standard list-based `examples=[...]` attributes, resolving 29 legacy schema validation console warnings during API start and testing.
+
+### ▌ 6. CSS Streaming Cursor Animation
+Modernized the Streamlit response streaming UX with real-time cursor indicators:
+- **Pulsing Opacity Animation**: Defined a custom `@keyframes blink` pulsing vertical cursor block (`▌`) in `src/styles.py`.
+- **Dynamic Streaming Flag**: Enhanced `src/components.py` to append the blinking element inside chat cards dynamically based on a thread-safe `is_streaming` boolean state controlled directly inside the Streamlit generation loop.
+
+### 📊 7. Automated RAGAS Evaluation Integration
+Objective and automated evaluations are built directly into the system's golden benchmark runner:
+- **RAGAS Performance Metrics**: Computes Faithfulness, Answer Relevance, and Context Precision.
+- **Zero-Temperature Gemini Judgments**: Invokes a custom structured JSON format `gemini-2.0-flash` evaluation loop to score systems between `0.0` and `1.0`.
+- **Tokenized Stop-Word Heuristic Fallbacks**: In the event of API rate limits (HTTP 429), network drops, or missing credentials, the evaluator smoothly falls back to set-overlap mathematics on stop-word-purged query token sets.
+
+### 🔧 8. Streamlit Interactive Graph Editing (CRUD)
+Administrators can now edit and manage the live Neo4j database directly from the dashboard:
+- **Comprehensive CRUD Operations**: Fully supports Adding, Editing, and Deleting entities, and establishing or deleting custom relationships.
+- **Vector Index Synchronization**: Automatically embeds added/modified entities via `embedder.get_embedding()` or utilizes a clean 384-dimensional zeros-vector fallback if local models are offline.
+- **Cypher Parameterization Security**: Restricts and validates relationship inputs using strict alphanumeric sanitization rules to block Cypher query injection threats.
+
 ---
 
 ## 🚀 One‑Command Quickstart (Docker Compose)

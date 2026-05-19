@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # --- Pydantic Schemas for OpenAPI Spec ---.
 
 class AskRequest(BaseModel):
-    query: str = Field(..., example="What company did Shadwal Singh found that focuses on AI education?")
+    query: str = Field(..., json_schema_extra={"examples": ["What company did Shadwal Singh found that focuses on AI education?"]})
 
 class AskResponse(BaseModel):
     query: str = Field(..., description="The original user query")
@@ -49,44 +49,44 @@ class AskResponse(BaseModel):
     relationships: List[str] = Field(default=[], description="List of graph relationships retrieved for the query")
 
 class IngestRequest(BaseModel):
-    text: str = Field(..., example="WhySchool is an educational startup founded in 2024 by Shadwal Singh.")
-    source_name: str = Field(default="api_upload", example="whyschool_press_release")
+    text: str = Field(..., json_schema_extra={"examples": ["WhySchool is an educational startup founded in 2024 by Shadwal Singh."]})
+    source_name: str = Field(default="api_upload", json_schema_extra={"examples": ["whyschool_press_release"]})
 
 class IngestResponse(BaseModel):
-    status: str = Field(..., example="queued")
-    job_id: str = Field(..., example="job_123456")
-    message: str = Field(..., example="Document ingestion queued successfully.")
+    status: str = Field(..., json_schema_extra={"examples": ["queued"]})
+    job_id: str = Field(..., json_schema_extra={"examples": ["job_123456"]})
+    message: str = Field(..., json_schema_extra={"examples": ["Document ingestion queued successfully."]})
 
 class JobStatusResponse(BaseModel):
-    job_id: str = Field(..., example="job_123456")
-    status: str = Field(..., example="completed", description="Current status: queued, processing, completed, or failed")
-    source_name: str = Field(..., example="whyschool_press_release")
-    created_at: str = Field(..., example="2026-05-17T12:00:00Z")
-    completed_at: Optional[str] = Field(default=None, example="2026-05-17T12:01:00Z")
+    job_id: str = Field(..., json_schema_extra={"examples": ["job_123456"]})
+    status: str = Field(..., json_schema_extra={"examples": ["completed"]}, description="Current status: queued, processing, completed, or failed")
+    source_name: str = Field(..., json_schema_extra={"examples": ["whyschool_press_release"]})
+    created_at: str = Field(..., json_schema_extra={"examples": ["2026-05-17T12:00:00Z"]})
+    completed_at: Optional[str] = Field(default=None, json_schema_extra={"examples": ["2026-05-17T12:01:00Z"]})
     state: Optional[GraphUpdateState] = Field(default=None, description="Graph state after successful completion")
     error: Optional[str] = Field(default=None, description="Error message if failed")
 
 class EntityRelationship(BaseModel):
-    predicate: str = Field(..., example="FOUNDED_IN")
-    target: Optional[str] = Field(default=None, example="2024")
-    source: Optional[str] = Field(default=None, example="WhySchool")
-    weight: float = Field(default=1.0, example=1.5)
+    predicate: str = Field(..., json_schema_extra={"examples": ["FOUNDED_IN"]})
+    target: Optional[str] = Field(default=None, json_schema_extra={"examples": ["2024"]})
+    source: Optional[str] = Field(default=None, json_schema_extra={"examples": ["WhySchool"]})
+    weight: float = Field(default=1.0, json_schema_extra={"examples": [1.5]})
 
 class EntityInspectResponse(BaseModel):
-    name: str = Field(..., example="WhySchool")
-    type: str = Field(..., example="ORG")
-    description: str = Field(..., example="Educational startup focused on AI")
-    aliases: List[str] = Field(default=[], example=["WhySchool Academy"])
-    source_chunk_ids: List[str] = Field(default=[], example=["chunk_123"])
+    name: str = Field(..., json_schema_extra={"examples": ["WhySchool"]})
+    type: str = Field(..., json_schema_extra={"examples": ["ORG"]})
+    description: str = Field(..., json_schema_extra={"examples": ["Educational startup focused on AI"]})
+    aliases: List[str] = Field(default=[], json_schema_extra={"examples": [["WhySchool Academy"]]})
+    source_chunk_ids: List[str] = Field(default=[], json_schema_extra={"examples": [["chunk_123"]]})
     outgoing_relationships: List[EntityRelationship] = Field(default=[])
     incoming_relationships: List[EntityRelationship] = Field(default=[])
 
 class ShortestPathResponse(BaseModel):
-    from_entity: str = Field(..., example="Shadwal Singh")
-    to_entity: str = Field(..., example="AI Education")
-    path_found: bool = Field(..., example=True)
-    path_nodes: List[str] = Field(default=[], example=["Shadwal Singh", "WhySchool", "AI Education"])
-    path_relationships: List[str] = Field(default=[], example=["FOUNDED", "FOCUSES_ON"])
+    from_entity: str = Field(..., json_schema_extra={"examples": ["Shadwal Singh"]})
+    to_entity: str = Field(..., json_schema_extra={"examples": ["AI Education"]})
+    path_found: bool = Field(..., json_schema_extra={"examples": [True]})
+    path_nodes: List[str] = Field(default=[], json_schema_extra={"examples": [["Shadwal Singh", "WhySchool", "AI Education"]]})
+    path_relationships: List[str] = Field(default=[], json_schema_extra={"examples": [["FOUNDED", "FOCUSES_ON"]]})
 
 # --- FastAPI App Initialization ---.
 
@@ -534,7 +534,7 @@ def ingest_endpoint(request: Request, payload: IngestRequest, background_tasks: 
 
 @app.get("/v1/jobs/{job_id}", response_model=JobStatusResponse, tags=["Ingestion"], summary="Get Ingestion Job Status")
 @limiter.limit("30/minute")
-def get_job_status_endpoint(request: Request, job_id: str = Path(..., example="job_123456", description="The unique job identifier")):
+def get_job_status_endpoint(request: Request, job_id: str = Path(..., examples=["job_123456"], description="The unique job identifier")):
     """
     Retrieves the current status and results of a background ingestion job.
     Reports whether the job is queued, processing, completed, or failed.
@@ -549,7 +549,7 @@ def get_job_status_endpoint(request: Request, job_id: str = Path(..., example="j
 
 @app.get("/v1/graph/entity/{name}", response_model=EntityInspectResponse, tags=["Knowledge Graph"], summary="Inspect Graph Node & Relationships")
 @limiter.limit("30/minute")
-def inspect_entity_endpoint(request: Request, name: str = Path(..., example="WhySchool", description="Canonical entity name to inspect")):
+def inspect_entity_endpoint(request: Request, name: str = Path(..., examples=["WhySchool"], description="Canonical entity name to inspect")):
     """
     Directly inspects a knowledge graph node in Neo4j. Returns its core properties, aliases, 
     provenance chunk IDs, and all incoming/outgoing relationship edges with their frequency weights.
@@ -606,8 +606,8 @@ def inspect_entity_endpoint(request: Request, name: str = Path(..., example="Why
 @limiter.limit("30/minute")
 def shortest_path_endpoint(
     request: Request,
-    from_entity: str = Query(..., alias="from", example="Shadwal Singh", description="Start entity name"),
-    to_entity: str = Query(..., alias="to", example="AI Education", description="Target entity name")
+    from_entity: str = Query(..., alias="from", examples=["Shadwal Singh"], description="Start entity name"),
+    to_entity: str = Query(..., alias="to", examples=["AI Education"], description="Target entity name")
 ):
     """
     Executes a shortest path graph traversal between two entities in Neo4j (up to 5 hops). 

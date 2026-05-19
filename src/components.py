@@ -421,13 +421,14 @@ def chat_messages_html(messages):
                                f'{label}</span>')
             
             rendered_content = render_citations(msg['content'])
+            cursor_html = '<span class="streaming-cursor">▌</span>' if msg.get("is_streaming") else ''
             paragraphs = rendered_content.replace('\n\n', '</p><p style="margin-bottom:10px;">')
             html += f"""
 <div style="display:flex; justify-content:flex-start; margin-bottom:16px;">
     <div style="max-width:85%; background:#080a0f; color:#b9cac2; padding:16px;
         border-radius:12px 12px 12px 4px; border:1px solid #1a1d25;
         font-family:Outfit,sans-serif; font-size:14px; line-height:1.6;">
-        <p style="margin-bottom:10px;">{paragraphs}</p>
+        <p style="margin-bottom:10px;">{paragraphs}{cursor_html}</p>
         <div>{pills_html}</div>
     </div>
 </div>"""

@@ -126,6 +126,18 @@ hr { border-color: #1F2937 !important; }
 }
 /* Collapse the spacing Streamlit adds around markdown blocks */
 .element-container { margin: 0 !important; padding: 0 !important; }
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+.streaming-cursor {
+    color: #00E5B5;
+    animation: blink 1.0s step-end infinite;
+    font-family: monospace;
+    display: inline;
+    font-weight: bold;
+}
 </style>
 """
 
