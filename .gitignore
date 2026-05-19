@@ -49,8 +49,7 @@ virtualenv/
 data/
 cache/
 
-# ─── Reports (generated output) ───────────────────────────────────────────────
-reports/
+
 
 # ─── Large model / binary files ───────────────────────────────────────────────
 *.onnx
