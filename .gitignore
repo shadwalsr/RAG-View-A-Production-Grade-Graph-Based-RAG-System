@@ -1,0 +1,91 @@
+# ─── Secrets & environment ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+nosetests.xml
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+virtualenv/
+.poetry/
+
+# ─── Data & databases (runtime-generated, large binary) ───────────────────────
+data/
+cache/
+
+# ─── Reports (generated output) ───────────────────────────────────────────────
+reports/
+
+# ─── Large model / binary files ───────────────────────────────────────────────
+*.onnx
+*.tar.gz
+*.jar
+*.pkl
+*.rdb
+*.aof
+*.db
+*.db.*
+*.sqlite3
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-workspace
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints
+
+# ─── Docker overrides ─────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─── Node (frontend) ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+.npm
+.eslintcache
