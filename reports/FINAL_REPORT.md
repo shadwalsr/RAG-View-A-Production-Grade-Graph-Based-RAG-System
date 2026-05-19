@@ -241,6 +241,26 @@ Also resolved ChromaDB SQLite lock errors (container restart), provisioned `llam
 
 ---
 
+### Report 21 — Medium-Impact Feature Scaffold & Renaming
+Structured and organized our sprint pipeline, designating Report 21 as the definitive status record. Continuing multi-agent orchestration across medium-priority user interface, error alignment, and benchmark evolution tasks.
+
+---
+
+### Report 22 — Redis Jobs Queue, Semantic Caching & Token Streaming
+Upgraded API and Dashboard systems to support asynchronous token-by-token streaming via FastAPI Server-Sent Events (SSE). Replaced the volatile jobs store with a Redis jobs state repository utilizing custom TTL keys. Migrated `slowapi` to shared Redis rate limiting and implemented highly optimized semantic caching.
+
+---
+
+### Report 23 — Autonomous Sub-Agent Code QA & Verification
+Deployed a specialized QA validation subagent to audit docstrings, type hinting, PEP8 syntax correctness, and dry-run boundaries across all 26 source code files. Executed the complete pytest test suite inside the containerized Docker environment with 100% success.
+
+---
+
+### Report 24 — FastAPI Warning Alignments, Streaming Cursors, LLM Evals, & Admin CRUD
+Refactored all FastAPI endpoint parameters and Pydantic models to conform to modern spec standards, eliminating all 29 startup warnings. Built a modern neon-mint blinking streaming cursor (`▌`) inside Streamlit chat blocks. Created structured zero-temperature `gemini-2.0-flash` evaluation prompts (Faithfulness, Answer Relevance, and Context Precision) with resilient offline set-overlap proxies. Built a live admin CRUD adjustments panel inside the Graph Explorer with Cypher parameter sanitization and real-time visual entity filters.
+
+---
+
 ## 5. Technology Stack
 
 | Layer | Technology | Version | Role |
@@ -393,22 +413,17 @@ docker compose up -d
 
 ## 12. Future Roadmap
 
-### Near-Term (Next 3 Months)
-1. **Streaming Token Generation** — Implement `generate_content_stream` in `GraphRAGGenerator` to reduce perceived latency for end users
-2. **Interactive Citation Tooltips** — Parse `[Source N]` tags in the Streamlit UI as clickable tooltips displaying underlying chunk text
-3. **`ConfidenceReport` Dashboard** — Surface `graph_coverage` and `grounding_confidence` as real-time metric gauges in the UI
-4. **Redis-Backed Distributed Rate Limiting** — Migrate `slowapi` to use Redis storage for consistent token buckets across multi-container deployments
+All high-impact near-term features (Streaming Token Generation, CSS Blinking Cursor Animations, Interactive Citation Tooltips, Redis-Backed Distributed Rate Limiting, `ConfidenceReport` Dashboard, and Automated RAGAS Evaluations) have been **fully completed and successfully deployed**.
 
 ### Medium-Term (3–12 Months)
-5. **RAGAS / TruLens Evaluation** — Automated evaluation pipeline benchmarking citation accuracy, answer relevance, and context precision
-6. **Kubernetes Helm Chart** — Production-grade multi-replica deployment with horizontal pod autoscaling
-7. **AuraDS Enterprise Integration** — Terraform script for provisioning dedicated Neo4j AuraDS with auto-scaling memory pools
-8. **MkDocs Documentation Site** — Auto-published GitHub Pages site from `README.md` and `ARCHITECTURE.md` on every main branch commit
+1. **Kubernetes Helm Chart** — Production-grade multi-replica deployment with horizontal pod autoscaling
+2. **AuraDS Enterprise Integration** — Terraform script for provisioning dedicated Neo4j AuraDS with auto-scaling memory pools
+3. **MkDocs Documentation Site** — Auto-published GitHub Pages site from `README.md` and `ARCHITECTURE.md` on every main branch commit
 
 ### Long-Term Vision
-9. **Streaming Graph Construction** — Real-time knowledge graph updates as documents arrive (event-driven via Kafka)
-10. **Multi-Modal Ingestion** — Extend beyond text/PDF to images, tables, and audio transcripts
-11. **Dynamic Chunk Sizing** — Adaptive chunk size based on document density (narrative vs dense tables/resumes)
+4. **Streaming Graph Construction** — Real-time knowledge graph updates as documents arrive (event-driven via Kafka)
+5. **Multi-Modal Ingestion** — Extend beyond text/PDF to images, tables, and audio transcripts
+6. **Dynamic Chunk Sizing** — Adaptive chunk size based on document density (narrative vs dense tables/resumes)
 
 ---
 
