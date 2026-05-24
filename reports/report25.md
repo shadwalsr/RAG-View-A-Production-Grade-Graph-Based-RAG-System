@@ -2,7 +2,7 @@
 
 **Author:** Shadwal Singh  
 **Engineering Partner:** Antigravity (Google DeepMind Advanced Agentic Coding Team)  
-**Date:** May 2026  
+**Date:** June 2026  
 **Status:** V2 Architectural Blueprint
 
 ---
@@ -85,7 +85,6 @@ The V2 architecture introduces a **Reflective Router** that coordinates the feed
                         └───────────────────────────┘
 ```
 
----
 
 ## 4. Production-Grade Implementation Strategy
 
@@ -105,7 +104,6 @@ In V2, the synchronous document ingestion pipeline will be migrated to a distrib
 ### 4.4 Model Specialization
 Instead of using a massive, generalized LLM for every step, V2 will use specialized, smaller local models (e.g., fine-tuned `llama3:8b` or `phi-3`) specifically trained for `Is-Rel` and `Is-Sup` classification tasks. This will dramatically reduce the latency of the reflective feedback loop and eliminate cloud dependency for internal audits.
 
----
 
 ## 5. Next Steps for V2 Launch
 
