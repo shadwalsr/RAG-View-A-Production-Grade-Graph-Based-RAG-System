@@ -15,7 +15,6 @@ However, V1 operates as a **static "retrieve-then-generate" pipeline**. If the i
 
 **RAG-View V2** marks the transition from a passive retrieval engine to an **autonomous, self-correcting agentic loop**. By integrating **Self-RAG (Self-Reflective Retrieval-Augmented Generation)** and **Reflective Type Retrieval**, the system will dynamically audit its own retrieved context, expand graph traversal depth on-the-fly, and automatically heal generated answers using real-time self-critique.
 
----
 
 ## 2. Core Enhancements in V2
 
@@ -113,3 +112,6 @@ Instead of using a massive, generalized LLM for every step, V2 will use speciali
 4. **Train/Configure Local Critique Models**: Set up optimized prompts or LoRA weights for evaluating relevance and grounding reliably.
 
 RAG-View V2 will redefine enterprise document intelligence by combining the deterministic safety of Knowledge Graphs with the autonomous reasoning of Agentic Self-Reflection.
+
+
+This would be a future vision that I shall be integrating into this project.
